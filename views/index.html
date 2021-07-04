@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Object Upload / Shorten URL - OOZO.NET</title>
+	<link href="/src/bootstrap.css" rel="stylesheet" crossorigin="anonymous">
+	<link href="/src/uppy.css" rel="stylesheet">
+</head>
+<body>
+
+<nav class="navbar-dark bg-dark navbar navbar-expand-md ">
+	<div class="container">
+		<a class="navbar-brand" href="https://oozo.net/">OOZO.NET</a>
+		<div class="collapse navbar-collapse" id="navbarCollapse">
+			<ul class="navbar-nav mr-auto">
+				<li class="nav-item">
+					<a class="nav-link active" aria-current="page" href="/">Home</a>
+				</li>
+				<li class="nav-item">
+					<a class="nav-link" href="/images">Images</a>
+				</li>
+				<li class="nav-item">
+					<a class="nav-link" href="/url">Short URLs</a>
+				</li>
+			</ul>
+		</div>
+	</div>
+</nav>
+
+<div class="container mt-3">
+	<div>
+		<label>
+			Short:
+		</label>
+		<div class="container mt-2 mb-4">
+			<div class="mt-2 mb-1">
+			<textarea type="text" class="form-control" placeholder="raw URL or text" id="raw"
+					  aria-describedby="button-addon2"></textarea>
+			</div>
+			<div class="input-group">
+				<input type="text" id="custom" placeholder="Custom (Optional)" class="form-control">
+				<button class="btn btn-outline-secondary" type="button" id="button-addon2" onclick="post()">Short!
+				</button>
+				<div class="form-check align-self-center ms-3">
+					<input class="form-check-input" type="checkbox" id="text">
+					<label class="form-check-label" for="text">
+						TEXT
+					</label>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div id="result" style="display: none">
+		<label>
+			Result:
+		</label>
+		<div class="container mt-1 mb-4">
+			<table class="table">
+				<thead>
+				<tr>
+					<th scope="col" style="width: 20%">Result</th>
+					<th scope="col">Raw</th>
+				</tr>
+				</thead>
+				<tbody id="result-body">
+				</tbody>
+			</table>
+		</div>
+	</div>
+	<div>
+
+		<label>
+			Upload:
+		</label>
+		<div class="container mt-2 mb-4">
+			<div id="drag-drop-area"></div>
+		</div>
+	</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/uppy@1.30.0/dist/uppy.min.js"></script>
+<script>
+    // setTimeout(async () => {
+    //     const text = await navigator.clipboard.readText();
+    //     document.getElementById("raw").value = text;
+    //     console.log(text);
+    // }, 100);
+
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+    }
+
+    var valid = false;
+
+    const token = getCookie('token');
+    if (token == null || token.length === 0) {
+        alert("WARN: \nThis site is for personal use, and is only demo to the public!");
+        document.body.style.disabled = true
+    } else {
+        valid = true
+    }
+
+    var uppy = Uppy.Core()
+        .use(Uppy.Dashboard, {
+            inline: true,
+            target: '#drag-drop-area'
+        })
+        .use(Uppy.DropTarget, {target: document.body})
+        .use(Uppy.ScreenCapture, {target: Uppy.Dashboard})
+        // .use(Uppy.Webcam, { target: Uppy.Dashboard })
+        // .use(Uppy.Tus, {endpoint: 'https://tusd.tusdemo.net/files/'});
+        .use(Uppy.AwsS3, {
+            getUploadParameters(file) {
+                // Send a request to our PHP signing endpoint.
+                if (valid) {
+                    return fetch('/sign', {
+                        method: 'post',
+                        // Send and receive JSON.
+                        headers: {
+                            accept: 'application/json',
+                            'content-type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            filename: file.name,
+                            contentType: file.type
+                        })
+                    }).then((response) => {
+                        // Parse the JSON response.
+                        return response.json()
+                    }).then((data) => {
+                        // Return an object in the correct shape.
+                        return {
+                            url: data.url,
+                            method: data.method,
+                            fields: null,
+                            // Provide content type header required by S3
+                            headers: {
+                                'Content-Type': file.type
+                            }
+                        }
+                    })
+                }
+            }
+        });
+
+    uppy.on('complete', (result) => {
+
+        result.successful.forEach(function (item, index) {
+            item.uploadURL = "https://img.oozo.net" + (new URL(item.uploadURL)).pathname.substr(12)
+        });
+        console.log('Upload complete! We’ve uploaded these files:', result.successful)
+    });
+
+
+    function appendResult(path, raw) {
+        var tbodyRef = document.getElementById('result-body');
+        var newRow = tbodyRef.insertRow();
+        var shortLink = document.createElement('a');
+        shortLink.setAttribute('href', document.location.origin + '/' + path);
+        shortLink.appendChild(document.createTextNode(path));
+
+        newRow.insertCell().appendChild(shortLink);
+        newRow.insertCell().appendChild(document.createTextNode(raw));
+    }
+
+    function post() {
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "/", true);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                var json = JSON.parse(xhr.responseText);
+                appendResult(json.path, json.raw);
+                document.getElementById("result").style.display = null;
+            } else if (xhr.readyState === 4 && xhr.status !== 200) {
+                console.log(xhr.response);
+                alert(xhr.response)
+            }
+        };
+        var raw = document.getElementById("raw").value;
+        var custom = document.getElementById("custom").value;
+        var text = document.getElementById("text").checked;
+        var data = JSON.stringify({"raw": raw, "path": custom, "text": text});
+        if (valid) {
+            xhr.send(data)
+        }
+    }
+
+
+</script>
+</body>
+</html>
